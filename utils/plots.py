@@ -3,11 +3,11 @@
 Plotting utils
 """
 
+import math
 from copy import copy
 from pathlib import Path
 
 import cv2
-import math
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -54,12 +54,12 @@ def check_font(font='Arial.ttf', size=10):
     font = font if font.exists() else (CONFIG_DIR / font.name)
     print('FONT2', font)
     try:
+        print('FONT_TRY', str(font), 'FONT_EXISTS', font.exists(), 'FONT_NAME', font.name)
         return ImageFont.truetype(str(font) if font.exists() else font.name, size)
     except Exception as e:  # download if missing
         url = "https://ultralytics.com/assets/" + font.name
         print(f'Downloading {url} to {font}...')
         torch.hub.download_url_to_file(url, str(font))
-        print(font, size)
         print('FONT3', font)
         print('SIZE', size)
         return ImageFont.truetype(str(font), size)
