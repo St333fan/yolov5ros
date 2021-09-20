@@ -1,7 +1,7 @@
 # YOLOv5 🚀 by Ultralytics, GPL-3.0 license
 
 # Start FROM Nvidia PyTorch image https://ngc.nvidia.com/catalog/containers/nvidia:pytorch
-FROM nvcr.io/nvidia/pytorch:21.08-py3
+FROM nvcr.io/nvidia/pytorch:21.05-py3
 
 # Install linux packages
 RUN apt update && apt install -y zip htop screen libgl1-mesa-glx
@@ -53,3 +53,6 @@ ENV HOME=/usr/src/app
 
 # Update Ubuntu drivers
 # https://www.maketecheasier.com/install-nvidia-drivers-ubuntu/
+
+# DDP test
+# python -m torch.distributed.run --nproc_per_node 2 --master_port 1 train.py --epochs 3
