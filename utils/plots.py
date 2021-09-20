@@ -48,9 +48,11 @@ colors = Colors()  # create instance for 'from utils.plots import colors'
 
 def check_font(font='Arial.ttf', size=10):
     # Return a PIL TrueType Font, downloading to CONFIG_DIR if necessary
+    print('CONFIG_DIR', CONFIG_DIR)
     font = Path(font)
+    print('FONT1', font)
     font = font if font.exists() else (CONFIG_DIR / font.name)
-    print(CONFIG_DIR, print(font))
+    print('FONT2', font)
     try:
         return ImageFont.truetype(str(font) if font.exists() else font.name, size)
     except Exception as e:  # download if missing
@@ -58,6 +60,8 @@ def check_font(font='Arial.ttf', size=10):
         print(f'Downloading {url} to {font}...')
         torch.hub.download_url_to_file(url, str(font))
         print(font, size)
+        print('FONT3', font)
+        print('SIZE', size)
         return ImageFont.truetype(str(font), size)
 
 
