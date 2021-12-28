@@ -88,38 +88,39 @@ class subscriber:
         # Directories
         self.save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
         (self.save_dir / 'labels' if self.save_txt else self.save_dir).mkdir(parents=True, exist_ok=True)  # make dir
-
+        print("sdf")
         # Load model
         self.device = select_device(self.device)
         self.model = DetectMultiBackend(weights, device=self.device, dnn=dnn)
         self.stride, self.names, pt, jit, onnx, engine = self.model.stride, self.model.names, self.model.pt, self.model.jit, self.model.onnx, self.model.engine
         self.imgsz = check_img_size(self.imgsz, s=self.stride)  # check image size
-
+        print("sdf")
         # Half
         self.half &= (pt or jit or engine) and self.device.type != 'cpu'  # half precision only supported by PyTorch on CUDA
         if pt or jit:
             self.model.model.half() if self.half else self.model.model.float()
-
+        print("sdf")
         # Dataloader
         dataset = LoadImages(source, img_size=self.imgsz, stride=self.stride, auto=pt)
         bs = 1  # batch_size
         vid_path, vid_writer = [None] * bs, [None] * bs
-
+        print("sdf")
         # Run inference
         self.model.warmup(imgsz=(1, 3, *self.imgsz), half=self.half)  # warmup
         self.dt, self.seen = [0.0, 0.0, 0.0], 0
-
-        self.sub = rospy.Subscriber("/video_frames", Image, self.callback)
+        print("sdf333")
+        self.sub = rospy.Subscriber('/usb_cam/image_raw', Image, self.callback)
+        print("sdf33sfsdf3")
 
     def callback(self, data):
-
+        print("hello")
         t1 = time_sync()
-        img = bridge.imgmsg_to_cv2(data, "8UC3") #bgr8
+        img = bridge.imgmsg_to_cv2(data, "bgr8") #bgr8
         # Letterbox
         im0s = img.copy()
         im = letterbox(im0s, self.imgsz, stride=self.stride, auto=True)[0]
-        
-        img = img[np.newaxis, :, :, :]
+
+        im = im[np.newaxis, :, :, :] #???
 
         im = torch.from_numpy(im).to(self.device)
         im = im.half() if self.half else im.float()  # uint8 to fp16/32
