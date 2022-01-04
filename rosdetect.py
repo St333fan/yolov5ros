@@ -188,7 +188,7 @@ class subscriber:
 
             # Stream results
             im0 = annotator.result()
-            self.pub.publish(bridge.cv_to_imgmsg(im0))
+            self.pub.publish(bridge.cv2_to_imgmsg(im0))
 
 
 def main():
