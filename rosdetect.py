@@ -110,8 +110,8 @@ class subscriber:
         self.dt, self.seen = [0.0, 0.0, 0.0], 0
 
         self.sub = rospy.Subscriber('/usb_cam/image_raw', Image, self.callback)
-        self.pub = rospy.Publisher('/usb_cam/image_raw/boundingboxes', Image, queue_size = 10)
-        print("sdf33sfsdf3")
+        self.pub1 = rospy.Publisher('/usb_cam/image_raw/boundingboxes', Image, queue_size = 10)
+        self.pub2 = rospy.Publisher('/usb_cam/image_raw/boundingboxes_crop', Image, queue_size = 10)
 
     def callback(self, data):
         print("working...")
@@ -176,19 +176,20 @@ class subscriber:
                         #with open(txt_path + '.txt', 'a') as f:
                         #    f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
-                    if self.save_img or self.save_crop or self.view_img:  # Add bbox to image
+                    if self.save_img or self.save_crop or self.view_img or True:  # Add bbox to image
                         c = int(cls)  # integer class
                         label = None if self.hide_labels else (self.names[c] if self.hide_conf else f'{self.names[c]} {conf:.2f}')
                         annotator.box_label(xyxy, label, color=colors(c, True))
-                        if self.save_crop:
-                            save_one_box(xyxy, imc, file=self.save_dir / 'crops' / self.names[c] / f'{p.stem}.jpg', BGR=True)
+                        if self.save_crop or True:
+                            crop = save_one_box(xyxy, imc, BGR=True, save=False)
+                            self.pub2.publish(bridge.cv2_ti_imgmsg(crop))
 
             # Print time (inference-only)
             LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
 
             # Stream results
             im0 = annotator.result()
-            self.pub.publish(bridge.cv2_to_imgmsg(im0))
+            self.pub1.publish(bridge.cv2_to_imgmsg(im0))
 
 
 def main():
