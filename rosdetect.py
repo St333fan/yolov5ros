@@ -88,39 +88,42 @@ class subscriber:
         # Directories
         self.save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
         (self.save_dir / 'labels' if self.save_txt else self.save_dir).mkdir(parents=True, exist_ok=True)  # make dir
-        print("sdf")
+       
         # Load model
         self.device = select_device(self.device)
         self.model = DetectMultiBackend(weights, device=self.device, dnn=dnn)
         self.stride, self.names, pt, jit, onnx, engine = self.model.stride, self.model.names, self.model.pt, self.model.jit, self.model.onnx, self.model.engine
         self.imgsz = check_img_size(self.imgsz, s=self.stride)  # check image size
-        print("sdf")
+        
         # Half
         self.half &= (pt or jit or engine) and self.device.type != 'cpu'  # half precision only supported by PyTorch on CUDA
         if pt or jit:
             self.model.model.half() if self.half else self.model.model.float()
-        print("sdf")
+
         # Dataloader
         dataset = LoadImages(source, img_size=self.imgsz, stride=self.stride, auto=pt)
         bs = 1  # batch_size
         vid_path, vid_writer = [None] * bs, [None] * bs
-        print("sdf")
+
         # Run inference
         self.model.warmup(imgsz=(1, 3, *self.imgsz), half=self.half)  # warmup
         self.dt, self.seen = [0.0, 0.0, 0.0], 0
-        print("sdf333")
+
         self.sub = rospy.Subscriber('/usb_cam/image_raw', Image, self.callback)
+        self.pub = rospy.Publisher('/usb_cam/image_raw/boundingboxes', Image, queue_size = 10)
         print("sdf33sfsdf3")
 
     def callback(self, data):
-        print("hello")
+        print("working...")
         t1 = time_sync()
         img = bridge.imgmsg_to_cv2(data, "bgr8") #bgr8
         # Letterbox
         im0s = img.copy()
         im = letterbox(im0s, self.imgsz, stride=self.stride, auto=True)[0]
-
-        im = im[np.newaxis, :, :, :] #???
+        im = im.transpose((2, 0, 1))[::-1] # HWC to CHW, BGR to RGB
+        im = np.ascontiguousarray(im)
+        
+        #im = im[np.newaxis, :, :, :] #???
 
         im = torch.from_numpy(im).to(self.device)
         im = im.half() if self.half else im.float()  # uint8 to fp16/32
@@ -148,8 +151,8 @@ class subscriber:
             self.seen += 1
             im0 = im0s.copy()
             s=''
-            p = Path(p)  # to Path
-            save_path = str(self.save_dir / p.name)  # im.jpg
+            #p = Path(p)  # to Path
+            #save_path = str(self.save_dir / p.name)  # im.jpg
             #txt_path = str(self.save_dir / 'labels' / p.stem) + (
             #    '' if dataset.mode == 'image' else f'_{frame}')  # im.txt
             s += '%gx%g ' % im.shape[2:]  # print string
@@ -185,6 +188,7 @@ class subscriber:
 
             # Stream results
             im0 = annotator.result()
+            self.pub.publish(bridge.cv_to_imgmsg(im0))
 
 
 def main():
