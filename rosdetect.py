@@ -17,6 +17,7 @@ import rospy
 # ROS Image message
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
+from yoloros.msg import fullBBox, singleBBox
 # ROS Image message -> OpenCV2 image converter
 from cv_bridge import CvBridge, CvBridgeError
 
@@ -61,7 +62,7 @@ class subscriber:
         self.device = ''  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         self.view_img = False  # show results
         self.save_txt = False  # save results to *.txt
-        self.save_conf = False  # save confidences in --save-txt labels
+        self.save_conf = True  # save confidences in --save-txt labels
         self.save_crop = False  # save cropped prediction boxes
         nosave = False  # do not save images/videos
         self.classes = None  # filter by class: --class 0, or --class 0 2 3
@@ -77,6 +78,7 @@ class subscriber:
         self.hide_conf = False  # hide confidences
         self.half = False  # use FP16 half-precision inference
         dnn = False  # use OpenCV DNN for ONNX inference
+        self.imageId = 0
         source = str(source)
         self.save_img = not nosave and not source.endswith('.txt')  # save inference images
         is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
@@ -109,12 +111,15 @@ class subscriber:
         self.model.warmup(imgsz=(1, 3, *self.imgsz), half=self.half)  # warmup
         self.dt, self.seen = [0.0, 0.0, 0.0], 0
 
-        self.sub = rospy.Subscriber('/usb_cam/image_raw', Image, self.callback)
-        self.pub1 = rospy.Publisher('/usb_cam/image_raw/boundingboxes', Image, queue_size = 10)
-        self.pub2 = rospy.Publisher('/usb_cam/image_raw/boundingboxes_crop', Image, queue_size = 10)
+        self.sub = rospy.Subscriber('/video_frames', Image, self.callback)
+        self.pub1 = rospy.Publisher('/usb_cam/image_raw/boundingboxes', fullBBox, queue_size = 10)
+        self.pub2 = rospy.Publisher('/usb_cam/image_raw/boundingboxes_crop', singleBBox, queue_size = 10)
 
     def callback(self, data):
         print("working...")
+        #instance custom msg
+        fBox = fullBBox()
+        
         t1 = time_sync()
         img = bridge.imgmsg_to_cv2(data, "bgr8") #bgr8
         # Letterbox
@@ -170,7 +175,7 @@ class subscriber:
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
-                    if self.save_txt:  # Write to file
+                    if self.save_txt or True:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                         line = (cls, *xywh, conf) if self.save_conf else (cls, *xywh)  # label format
                         #with open(txt_path + '.txt', 'a') as f:
@@ -180,16 +185,30 @@ class subscriber:
                         c = int(cls)  # integer class
                         label = None if self.hide_labels else (self.names[c] if self.hide_conf else f'{self.names[c]} {conf:.2f}')
                         annotator.box_label(xyxy, label, color=colors(c, True))
+                        print(line[5].item())
+                        
                         if self.save_crop or True:
                             crop = save_one_box(xyxy, imc, BGR=True, save=False)
-                            self.pub2.publish(bridge.cv2_ti_imgmsg(crop))
+                            sBox = singleBBox()
+                            sBox.im = bridge.cv2_to_imgmsg(crop)
+                            sBox.kindeOfStrawberry = line[0].item()
+                            sBox.x = line[1]
+                            sBox.y = line[2]
+                            sBox.w = line[3]
+                            sBox.h = line[4]
+                            sBox.conf = line[5].item()
+                            self.pub2.publish(sBox)
 
             # Print time (inference-only)
             LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
 
             # Stream results
             im0 = annotator.result()
-            self.pub1.publish(bridge.cv2_to_imgmsg(im0))
+            fBox.im = bridge.cv2_to_imgmsg(im0)
+            fBox.id = self.imageId
+            self.pub1.publish(fBox)
+            self.imageId += 1
+            print(self.imageId)
 
 
 def main():
