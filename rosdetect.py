@@ -63,7 +63,7 @@ class subscriber:
         self.view_img = False  # show results
         self.save_txt = False  # save results to *.txt
         self.save_conf = True  # save confidences in --save-txt labels
-        self.save_crop = False  # save cropped prediction boxes
+        self.save_crop = True  # save cropped prediction boxes
         nosave = False  # do not save images/videos
         self.classes = None  # filter by class: --class 0, or --class 0 2 3
         self.agnostic_nms = False  # class-agnostic NMS
@@ -156,62 +156,59 @@ class subscriber:
             self.seen += 1
             singleBBoxCount = 0 # count how many BBoxes got found
             im0 = im0s.copy()
-            s=''
+            #s=''
             #p = Path(p)  # to Path
             #save_path = str(self.save_dir / p.name)  # im.jpg
             #txt_path = str(self.save_dir / 'labels' / p.stem) + (
             #    '' if dataset.mode == 'image' else f'_{frame}')  # im.txt
-            s += '%gx%g ' % im.shape[2:]  # print string
+            #s += '%gx%g ' % im.shape[2:]  # print string
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             imc = im0.copy() if self.save_crop else im0  # for save_crop
             annotator = Annotator(im0, line_width=self.line_thickness, example=str(self.names))
             if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
-
+                
                 # Print results
-                for c in det[:, -1].unique():
-                    n = (det[:, -1] == c).sum()  # detections per class
-                    s += f"{n} {self.names[int(c)]}{'s' * (n > 1)}, "  # add to string
+                #for c in det[:, -1].unique():
+                 #   n = (det[:, -1] == c).sum()  # detections per class
+                 #   s += f"{n} {self.names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
                 # Write results
                 for *xyxy, conf, cls in reversed(det): # loop for the small BBoxes(Crops)
-                    print(singleBBoxCount)
-                    if self.save_txt or True:  # Write to file
-                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                        line = (cls, *xywh, conf) if self.save_conf else (cls, *xywh)  # label format
-                        #with open(txt_path + '.txt', 'a') as f:
-                        #    f.write(('%g ' * len(line)).rstrip() % line + '\n')
-
-                    if self.save_img or self.save_crop or self.view_img or True:  # Add bbox to image
-                        c = int(cls)  # integer class
-                        label = None if self.hide_labels else (self.names[c] if self.hide_conf else f'{self.names[c]} {conf:.2f}')
-                        annotator.box_label(xyxy, label, color=colors(c, True))
-                        
-                        if self.save_crop or True:
-                            crop = save_one_box(xyxy, imc, BGR=True, save=False)
-                            sBox = singleBBox()
-                            sBox.im = bridge.cv2_to_imgmsg(crop)
-                            sBox.singleBoxId = singleBBoxCount
-                            sBox.cameraFrameId = self.imageId
-                            sBox.kindeOfStrawberry = line[0].item()
-                            sBox.x = line[1]
-                            sBox.y = line[2]
-                            sBox.w = line[3]
-                            sBox.h = line[4]
-                            sBox.conf = line[5].item()
-                            self.pub2.publish(sBox)
-                            singleBBoxCount += 1
-                            #cv2.imshow("smallBBox", crop)
-                            #cv2.waitKey(1)
+                    xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                    line = (cls, *xywh, conf) if self.save_conf else (cls, *xywh)  # label format
+		
+		    # Annotate
+                    c = int(cls)  # integer class
+                    label = None if self.hide_labels else (self.names[c] if self.hide_conf else f'{self.names[c]} {conf:.2f}')
+                    annotator.box_label(xyxy, label, color=colors(c, True))
+                    
+                    # convert and publish custom message 
+                    crop = save_one_box(xyxy, imc, BGR=True, save=False)
+                    sBox = singleBBox()
+                    sBox.im = bridge.cv2_to_imgmsg(crop)
+                    sBox.singleBoxId = singleBBoxCount
+                    sBox.cameraFrameId = self.imageId
+                    sBox.kindeOfStrawberry = line[0].item()
+                    sBox.x = line[1]
+                    sBox.y = line[2]
+                    sBox.w = line[3]
+                    sBox.h = line[4]
+                    sBox.conf = line[5].item()
+                    self.pub2.publish(sBox)
+                    singleBBoxCount += 1
+                    cv2.imshow("smallBBox", crop)
+                    cv2.waitKey(1)
+                            
 
             # Print time (inference-only)
-            LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
+            #LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
 
             # Stream results
             im0 = annotator.result()
-            #cv2.imshow("BBox", im0)
-            #cv2.waitKey(1)
+            cv2.imshow("BBox", im0)
+            cv2.waitKey(1)
             fBox.im = bridge.cv2_to_imgmsg(im0)
             fBox.cameraFrameId = self.imageId
             fBox.howManyBoxes = singleBBoxCount +1
