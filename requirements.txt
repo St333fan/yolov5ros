@@ -35,3 +35,8 @@ seaborn>=0.11.0
 # pycocotools>=2.0  # COCO mAP
 # roboflow
 thop  # FLOPs computation
+
+# Sort ----------------------------------------
+filterpy==1.4.5
+scikit-image==0.17.2
+lap==0.4.0
