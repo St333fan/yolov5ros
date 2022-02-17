@@ -21,6 +21,9 @@ from yoloros.msg import fullBBox, singleBBox
 # ROS Image message -> OpenCV2 image converter
 from cv_bridge import CvBridge, CvBridgeError
 
+# import sort class for yoloo and ros
+from sort.sort import *
+
 from utils.augmentations import letterbox #fÃ¼r im0 to im in dataset
 import time
 import numpy as np
@@ -78,7 +81,8 @@ class subscriber:
         self.hide_conf = False  # hide confidences
         self.half = False  # use FP16 half-precision inference
         dnn = False  # use OpenCV DNN for ONNX inference
-        self.imageId = 0 #know which BBox is from Frame
+        self.imageId = 0 # know which BBox is from Frame #Stefan
+        
         source = str(source)
         self.save_img = not nosave and not source.endswith('.txt')  # save inference images
         is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
@@ -111,9 +115,15 @@ class subscriber:
         self.model.warmup(imgsz=(1, 3, *self.imgsz), half=self.half)  # warmup
         self.dt, self.seen = [0.0, 0.0, 0.0], 0
 
-        self.sub = rospy.Subscriber('/video_frames', Image, self.callback)
+        self.sub = rospy.Subscriber('/video_frames', Image, self.callback) # instanciate the Subscriber and Publisher
         self.pub1 = rospy.Publisher('/usb_cam/image_raw/boundingboxes', fullBBox, queue_size = 10)
         self.pub2 = rospy.Publisher('/usb_cam/image_raw/boundingboxes_crop', singleBBox, queue_size = 10)
+        
+        max_age = 1 # Maximum number of frames to keep alive a track without associated detections
+        min_hits = 3 # Minimum number of associated detections before track is initialised
+        iou_threshold = 0.3 # Minimum IOU for match
+        
+        self.mot_tracker = Sort(max_age, min_hits, iou_threshold) # tracker
 
     def callback(self, data):
         print("working...")
@@ -122,6 +132,7 @@ class subscriber:
 
         t1 = time_sync()
         img = bridge.imgmsg_to_cv2(data, "bgr8") #bgr8 conversion 
+        
         # Letterbox
         im0s = img.copy()
         im = letterbox(im0s, self.imgsz, stride=self.stride, auto=True)[0]
@@ -153,6 +164,9 @@ class subscriber:
 
         # Process predictions
         for i, det in enumerate(pred):  # per image
+        
+            bboxinfo = np.empty((0,5))# prepare bounding boxes for sort
+            print(bboxinfo)
             self.seen += 1
             singleBBoxCount = 0 # count how many BBoxes got found
             im0 = im0s.copy()
@@ -195,6 +209,18 @@ class subscriber:
                     sBox.y = line[2]
                     sBox.w = line[3]
                     sBox.h = line[4]
+                    # convert for sort x1 and y1 are the top right corner, x2 and y2 are the bottom left corner
+                    x1 = (line[1]-line[3]/2)*self.imgsz[0] 
+                    y1 = (line[2]-line[4]/2)*self.imgsz[1]
+                    x2 = x1 + line[3]*self.imgsz[0]
+                    y2 = y1 + line[4]*self.imgsz[0]
+                    if(singleBBoxCount == 0):
+                        #bboxinfo = np.array([line[1]*self.imgsz[0], line[2]*self.imgsz[1], line[3] + line[1]*self.imgsz[0], line[4] + line[2]*self.imgsz[1], line[5].item()], dtype = 'float')
+                        bboxinfo = np.array([[0,0,0,0,0],[0,0,0,0,0],[x1, y1, x2, y2, line[5].item()]], dtype = 'float')
+                    else:
+                        #bboxinfo = np.vstack([bboxinfo, [line[1]*self.imgsz[0], line[2]*self.imgsz[1], line[3] + line[1]*self.imgsz[0], line[4] + line[2]*self.imgsz[1], line[5].item()]])
+                        bboxinfo = np.vstack([bboxinfo, [x1, y1, x2, y2, line[5].item()]])               
+                    #print(bboxinfo)
                     sBox.conf = line[5].item()
                     self.pub2.publish(sBox)
                     singleBBoxCount += 1
@@ -205,6 +231,13 @@ class subscriber:
             # Print time (inference-only)
             #LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
 
+            # update MOT_tracker
+            print(bboxinfo)
+            trackers = self.mot_tracker.update(bboxinfo)
+
+            for d in trackers:
+                print(self.imageId,d[4],d[0],d[1],d[2]-d[0],d[3]-d[1])
+                
             # Stream results
             im0 = annotator.result()
             cv2.imshow("BBox", im0)
