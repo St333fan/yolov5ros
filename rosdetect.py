@@ -211,13 +211,18 @@ class subscriber:
                     sBox.h = line[4]
                     sBox.conf = line[5].item()
                     
+                    print(line[1], line[2],line[3],line[4])
                     # convert for sort x1 and y1 are the top right corner, x2 and y2 are the bottom left corner
-                    x1 = (line[1]-line[3]/2)*self.imgsz[0] 
-                    y1 = (line[2]-line[4]/2)*self.imgsz[1]
-                    x2 = x1 + line[3]*self.imgsz[0]
-                    y2 = y1 + line[4]*self.imgsz[0]
+                    x1 = (line[1]-(line[3]/2))*self.imgsz[0] 
+                    y1 = (line[2]-(line[4]/2))*self.imgsz[1]
+                    x2 = (line[1]+(line[3]/2))*self.imgsz[0]
+                    y2 = (line[2]+(line[4]/2))*self.imgsz[1]
+                    #x2 = x1 + line[3]*self.imgsz[0]
+                    #y2 = y1 + line[4]*self.imgsz[1]
+                    
                     if(singleBBoxCount == 0): # ndarray for the mot_tracker update function all bounding box informations are in there
-                        bboxinfo = np.array([[x1, y1, x2, y2, line[5].item()]], dtype = 'float')
+                        #bboxinfo = np.array([[x1, y1, x2, y2, line[5].item()]], dtype = 'float')
+                        bboxinfo = np.array([[x1, y1, x2, y2, line[5].item()]])
                     else:
                         bboxinfo = np.vstack([bboxinfo, [x1, y1, x2, y2, line[5].item()]])               
 
@@ -231,13 +236,18 @@ class subscriber:
             #LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
 
             # update MOT_tracker
-            print(bboxinfo)
-            print(type(bboxinfo))
+            #print(bboxinfo)
             trackers = self.mot_tracker.update(bboxinfo)
 
             for d in trackers:
                 print(self.imageId,d[4],d[0],d[1],d[2]-d[0],d[3]-d[1])
+                xs = (d[0]+(d[2]-d[0])/2)/self.imgsz[0]
+                ys = (d[1]+(d[3]-d[1])/2)/self.imgsz[1]
+                ws = (d[2]-d[0])/self.imgsz[0]
+                hs = (d[3]-d[1])/self.imgsz[1]
+                fBox.sortedBoxes.extend((d[4], xs, ys, ws, hs))
                 
+            print(fBox.sortedBoxes)
             # Stream results
             im0 = annotator.result()
             cv2.imshow("BBox", im0)
