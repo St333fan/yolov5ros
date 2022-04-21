@@ -21,6 +21,9 @@ from yoloros.msg import fullBBox, singleBBox
 # ROS Image message -> OpenCV2 image converter
 from cv_bridge import CvBridge, CvBridgeError
 
+# import sort class for yoloo and ros
+from sort.sort import *
+
 from utils.augmentations import letterbox #fÃ¼r im0 to im in dataset
 import time
 import numpy as np
@@ -55,10 +58,10 @@ class subscriber:
     def __init__(self):
         weights = ROOT / 'yolov5s.pt'  # model.pt path(s)
         source = ROOT / 'data/images'  # file/dir/URL/glob, 0 for webcam
-        self.imgsz = (640, 640)  # inference size (height, width)
+        self.imgsz = (640, 640)  # inference size (height, width) must be multiple of max stride 32
         self.conf_thres = 0.25  # confidence threshold
         self.iou_thres = 0.45  # NMS IOU threshold
-        self.max_det = 1000  # maximum detections per image
+        self.max_det = 100  # maximum detections per image (was 1000)
         self.device = ''  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         self.view_img = False  # show results
         self.save_txt = False  # save results to *.txt
@@ -78,7 +81,8 @@ class subscriber:
         self.hide_conf = False  # hide confidences
         self.half = False  # use FP16 half-precision inference
         dnn = False  # use OpenCV DNN for ONNX inference
-        self.imageId = 0 #know which BBox is from Frame
+        self.imageId = 0 # know which BBox is from Frame #Stefan
+        
         source = str(source)
         self.save_img = not nosave and not source.endswith('.txt')  # save inference images
         is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
@@ -111,24 +115,39 @@ class subscriber:
         self.model.warmup(imgsz=(1, 3, *self.imgsz), half=self.half)  # warmup
         self.dt, self.seen = [0.0, 0.0, 0.0], 0
 
-        self.sub = rospy.Subscriber('/video_frames', Image, self.callback)
+        self.sub = rospy.Subscriber('/video_frames', Image, self.callback)  # instantiate the Subscriber and Publisher
         self.pub1 = rospy.Publisher('/usb_cam/image_raw/boundingboxes', fullBBox, queue_size = 10)
         self.pub2 = rospy.Publisher('/usb_cam/image_raw/boundingboxes_crop', singleBBox, queue_size = 10)
+        
+        max_age = 1 # Maximum number of frames to keep alive a track without associated detections
+        min_hits = 3 # Minimum number of associated detections before track is initialised
+        iou_threshold = 0.3 # Minimum IOU for match
+        
+        self.mot_tracker = Sort(max_age, min_hits, iou_threshold) # tracker
 
     def callback(self, data):
         print("working...")
-        #instance custom msg
-        fBox = fullBBox()
+
+        fBox = fullBBox()  # instance custom msg
+        """
+        sensor_msgs/Image im
+        int64 cameraFrameId
+        int8 howManyBoxes
+        yoloros/singleBBox[] boxesWithAll
+        float32[] sortedBoxes
+        time stamp
+        """
 
         t1 = time_sync()
-        img = bridge.imgmsg_to_cv2(data, "bgr8") #bgr8 conversion 
+        img = bridge.imgmsg_to_cv2(data, "bgr8")  # bgr8 conversion input image
+        
         # Letterbox
         im0s = img.copy()
-        im = letterbox(im0s, self.imgsz, stride=self.stride, auto=True)[0]
+        im = letterbox(im0s, self.imgsz, stride=self.stride, auto=True)[0]  # putting the image into letterbox func.yolo
         im = im.transpose((2, 0, 1))[::-1] # HWC to CHW, BGR to RGB
         im = np.ascontiguousarray(im)
         
-        #im = im[np.newaxis, :, :, :] #???
+        # im = im[np.newaxis, :, :, :] #???
 
         im = torch.from_numpy(im).to(self.device)
         im = im.half() if self.half else im.float()  # uint8 to fp16/32
@@ -153,8 +172,10 @@ class subscriber:
 
         # Process predictions
         for i, det in enumerate(pred):  # per image
+        
+            bboxinfo = np.empty((0, 5))  # prepare bounding boxes for sort empty array
             self.seen += 1
-            singleBBoxCount = 0 # count how many BBoxes got found
+            singleBBoxCount = 0  # count how many BBoxes got found
             im0 = im0s.copy()
             #s=''
             #p = Path(p)  # to Path
@@ -175,11 +196,11 @@ class subscriber:
                  #   s += f"{n} {self.names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
                 # Write results
-                for *xyxy, conf, cls in reversed(det): # loop for the small BBoxes(Crops)
+                for *xyxy, conf, cls in reversed(det):  # loop for the small BBoxes(Crops)
                     xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                     line = (cls, *xywh, conf) if self.save_conf else (cls, *xywh)  # label format
-		
-		    # Annotate
+
+                    # Annotate
                     c = int(cls)  # integer class
                     label = None if self.hide_labels else (self.names[c] if self.hide_conf else f'{self.names[c]} {conf:.2f}')
                     annotator.box_label(xyxy, label, color=colors(c, True))
@@ -187,7 +208,7 @@ class subscriber:
                     # convert and publish custom message 
                     crop = save_one_box(xyxy, imc, BGR=True, save=False)
                     sBox = singleBBox()
-                    sBox.im = bridge.cv2_to_imgmsg(crop)
+                    #sBox.im = bridge.cv2_to_imgmsg(crop)  # should not be in the final product save bandwidth
                     sBox.singleBoxId = singleBBoxCount
                     sBox.cameraFrameId = self.imageId
                     sBox.kindeOfStrawberry = line[0].item()
@@ -196,22 +217,81 @@ class subscriber:
                     sBox.w = line[3]
                     sBox.h = line[4]
                     sBox.conf = line[5].item()
+                    
+                    print(line[1], line[2], line[3], line[4], " --- Bounding Box ")
+
+
+                    # convert for sort x1 and y1 are the top right corner, x2 and y2 are the bottom left corner
+                    x1 = (line[1]-(line[3]/2))*self.imgsz[0] 
+                    y1 = (line[2]-(line[4]/2))*self.imgsz[1]
+                    x2 = (line[1]+(line[3]/2))*self.imgsz[0]
+                    y2 = (line[2]+(line[4]/2))*self.imgsz[1]
+                    #x2 = x1 + line[3]*self.imgsz[0]
+                    #y2 = y1 + line[4]*self.imgsz[1]
+                    
+                    if(singleBBoxCount == 0): # ndarray for the mot_tracker update function all bounding box informations are in there
+                        #bboxinfo = np.array([[x1, y1, x2, y2, line[5].item()]], dtype = 'float')
+                        bboxinfo = np.array([[x1, y1, x2, y2, line[5].item()]])
+                    else:
+                        bboxinfo = np.vstack([bboxinfo, [x1, y1, x2, y2, line[5].item()]])               
+
                     self.pub2.publish(sBox)
-                    singleBBoxCount += 1
+                    # for debugging
                     cv2.imshow("smallBBox", crop)
                     cv2.waitKey(1)
+
+                    fBox.boxesWithAll.append(sBox)
+
+                    singleBBoxCount += 1
                             
 
             # Print time (inference-only)
-            #LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
+            # LOGGER.info(f'{s}Done. ({t3 - t2:.3f}s)')
 
+            # update MOT_tracker
+            # print(bboxinfo)
+            trackers = self.mot_tracker.update(bboxinfo)
+
+            print("")
+            print("")
+
+
+            #float oneBox[];
+
+            for d in trackers:
+                print(self.imageId, d[4], d[0], d[1], d[2]-d[0], d[3]-d[1])
+                xs = (d[0]+(d[2]-d[0])/2)/self.imgsz[0]
+                ys = (d[1]+(d[3]-d[1])/2)/self.imgsz[1]
+                ws = (d[2]-d[0])/self.imgsz[0]
+                hs = (d[3]-d[1])/self.imgsz[1]
+                calcOld = 1000
+                for b in fBox.boxesWithAll:
+                    calc = abs(xs-b.x) + abs(ys-b.y) + abs(ws-b.w) + abs(hs-b.h)
+                    if calc < calcOld:
+                        foundId = b.singleBoxId
+                    print(foundId)
+                    calcOld = calc
+                for b in fBox.boxesWithAll:
+                    if b.singleBoxId == foundId:
+                        b.sortAlgoId = int(d[4])
+
+                fBox.sortedBoxes.extend((d[4], xs, ys, ws, hs))
+
+
+
+            print(" --- Sorted Bounding boxes --- ")
+            print(fBox.sortedBoxes)
             # Stream results
             im0 = annotator.result()
             cv2.imshow("BBox", im0)
             cv2.waitKey(1)
-            fBox.im = bridge.cv2_to_imgmsg(im0)
+
+            #fBox.im = bridge.cv2_to_imgmsg(im0)  # should not be in the final product save bandwith
             fBox.cameraFrameId = self.imageId
-            fBox.howManyBoxes = singleBBoxCount +1
+            fBox.howManyBoxes = singleBBoxCount
+            fBox.stampOfOriginal = rospy.get_rostime()  # copy the timestamp of the original picture in
+
+
             self.pub1.publish(fBox)
             self.imageId += 1
             print(self.imageId)
